@@ -291,7 +291,7 @@ fn main() -> impl std::process::Termination {
 fn refuse_start(why: &str) -> ! {
     use std::io::Write;
     eprintln!("buwiz-bot: {why}");
-    let home = buwiz_bot::identity::home();
+    let Ok(home) = buwiz_bot::identity::try_home() else { std::process::exit(2) };
     let path = buwiz_protocol::env::var_os("BUWIZ_JANK_LOG").map(std::path::PathBuf::from)
         .unwrap_or_else(|| buwiz_bot::identity::logs_dir(std::path::Path::new(&home)).join("jank.log"));
     if let Some(dir) = path.parent() {
@@ -312,6 +312,9 @@ fn main() -> impl std::process::Termination {
     }
     if let Err(why) = buwiz_protocol::env::refuse_old_names() {
         refuse_start(&why);
+    }
+    if let Err(why) = buwiz_bot::identity::try_home() {
+        refuse_start(why);
     }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error")).init();
     let home = buwiz_bot::identity::home();

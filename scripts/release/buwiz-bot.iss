@@ -30,7 +30,7 @@ CloseApplications=yes
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\Buwiz Bot"; Filename: "{app}\bin\buwiz-bot.exe"; WorkingDir: "{app}"
+Name: "{userprograms}\Buwiz Bot"; Filename: "{app}\bin\buwiz-bot.exe"; WorkingDir: "{userappdata}"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\buwiz"; ValueType: string; ValueName: ""; ValueData: "URL:Buwiz Bot"; Flags: uninsdeletekey
