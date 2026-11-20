@@ -86,6 +86,7 @@ BROKER_VERSION="$("$BUWIZ_BROKER_BIN" --version)"
 echo "verified $BOT_VERSION and $BROKER_VERSION"
 
 NAME="Buwiz-Bot-$VERSION-linux-x64"
+TAR_NAME="buwiz-bot-$VERSION-linux-x64"
 DEB="$OUT/$NAME.deb"
 TARBALL="$OUT/$NAME.tar.gz"
 mkdir -p "$OUT"
@@ -174,7 +175,7 @@ Description: Buwiz Bot desktop application
 CONTROL
 dpkg-deb --build --root-owner-group "$PKG" "$DEB" >/dev/null
 
-TOP="$WORK/$NAME"
+TOP="$WORK/$TAR_NAME"
 mkdir -p "$TOP/bin" "$TOP/share/applications"
 cp "$WORK/buwiz-bot" "$TOP/bin/buwiz-bot"
 cp -R "$RESOURCES" "$TOP/Resources"
@@ -186,12 +187,12 @@ fi
 cat > "$TOP/README.md" <<'README'
 # Buwiz Bot for Linux
 
-Requires GTK 4.14 or later and SQLite 3. The broker, office editor assets,
-and fonts are bundled under `Resources/`. Run `bin/buwiz-bot` from this
-directory. For desktop integration, install this directory as
+Requires GTK 4.14 or later, SQLite 3 and WebKitGTK 6.0. The broker, office
+editor assets, and fonts are bundled under `Resources/`. Run `bin/buwiz-bot`
+from this directory. For desktop integration, install this directory as
 `/opt/buwiz-bot` and register `share/applications/com.buwiz.bot.desktop`.
 README
-tar -C "$WORK" -czf "$TARBALL" "$NAME"
+tar -C "$WORK" -czf "$TARBALL" "$TAR_NAME"
 
 for artifact in "$DEB" "$TARBALL"; do
   (cd "$OUT" && sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256")

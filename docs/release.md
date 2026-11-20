@@ -100,7 +100,7 @@ now:
 - The Agent Hub is a stub (`agent_hub_linux.rs`): no agent drives a screen,
   and a held press is declined.
 - No file dialog (a pick returns nothing), zoom, keyboard host or Keychain
-  vault; the web view needs nsh's `webview` feature.
+  vault. Web views use WebKitGTK 6.0 through nsh's `webview` feature.
 - Installed fonts aren't looked up (CoreText only); the bundled ones are.
 
 The Linux and Windows brokers default to a file keystore under their data
@@ -124,18 +124,19 @@ left out for now:
 `scripts/release/build-linux.sh` builds the app without default features, the
 broker, `nsh`, and the Linux host used for pop-outs. It packages the same
 `Resources/` tree for both formats, including the broker, office assets and
-fonts:
+fonts. Building requires `libgtk-4-dev`, `libsqlite3-dev` and
+`libwebkitgtk-6.0-dev`:
 
 - `Buwiz-Bot-<version>-linux-x64.deb` installs under `/opt/buwiz-bot/`, adds
   `/usr/bin/buwiz-bot` as a symlink, and registers
   `/usr/share/applications/com.buwiz.bot.desktop` for the `buwiz:` scheme.
-  It depends on GTK 4.14 or later and SQLite 3, plus the runtime libraries
-  reported by `ldd`. When `app/resources/AppIcon.png` exists, the package
-  installs it in the hicolor icon theme.
+  It depends on GTK 4.14 or later, SQLite 3, WebKitGTK 6.0 and the runtime
+  libraries reported by `ldd`. When `app/resources/AppIcon.png` exists, the
+  package installs it in the hicolor icon theme.
 - `Buwiz-Bot-<version>-linux-x64.tar.gz` extracts to a versioned top-level
   directory with `bin/`, `Resources/`, a desktop entry and a short README.
   Run `bin/buwiz-bot` from the extracted directory. GTK 4.14 or later and
-  SQLite 3 are required.
+  SQLite 3 and WebKitGTK 6.0 are required.
 
 ### Windows packaging
 
