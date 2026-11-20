@@ -1,17 +1,29 @@
 # Releasing Buwiz Bot
 
-A release is one Apple silicon (arm64) dmg, signed with the Goldcoders
-Corp Developer ID, notarized and stapled, with its `manifest.json` and
-`SHA256SUMS`. It goes to a GitHub release and to the R2 bucket
+A release contains a macOS Apple silicon (arm64) dmg, Linux x64 `.deb` and
+`.tar.gz`, and Windows x64 installer. The macOS dmg is signed with the
+Goldcoders Corp Developer ID, notarized and stapled; Linux and Windows
+artifacts are unsigned by design. The files and their `manifest.json` and
+`SHA256SUMS` go to a GitHub release and to the R2 bucket
 `buwiz-releases`, served at `https://downloads.buwiz.com/bot/` (the bucket is
 shared with the other apps; the bot's files are under `bot/`):
 
 ```
 bot/latest.json                              what buwiz.com reads
 bot/releases/v<version>/Buwiz-Bot-<version>-macos-arm64.dmg
+bot/releases/v<version>/Buwiz-Bot-<version>-linux-x64.deb
+bot/releases/v<version>/Buwiz-Bot-<version>-linux-x64.tar.gz
+bot/releases/v<version>/Buwiz-Bot-<version>-windows-x64.exe
 bot/releases/v<version>/manifest.json
 bot/releases/v<version>/SHA256SUMS
 ```
+
+`latest.json` is a copy of the newest `manifest.json`. Its compatible schema
+remains `version`, `published_at`, and `files`; each file entry keeps the
+existing `platform`, `arch`, `kind`, `file`, `size`, and `sha256` fields.
+Linux and Windows add file entries only. `r2-publish.sh` uploads every file
+under `release-file-*`, so it includes the new artifacts without a schema or
+script change.
 
 ## Publishing
 
@@ -54,8 +66,9 @@ and `just publish <version>` tries again.
 
 A failed read is never taken for "nothing there": the workflow stops if it
 can't read the GitHub release, the R2 listing or `bot/latest.json`, and
-only a real not-found counts as missing. A build with no signed status counts
-as unsigned.
+only a real not-found counts as missing. macOS must be signed and notarized
+for a real publish. Unsigned Linux and Windows artifacts do not block that
+publish or make the release count as unsigned.
 
 The tag is pushed straight to origin and no local tag is made: this repo's
 clones also hold nsh upstream's `v*` tags, and a failed push leaves nothing
@@ -76,13 +89,13 @@ older version leaves it at the newest.
 
 | Target | State |
 | --- | --- |
-| macOS arm64 | Built and published |
-| Linux x64 | Runs (GTK 4.14 or later), not packaged |
-| Windows x64 | Runs (Win32), not packaged |
+| macOS arm64 | Built and published; Developer ID signed and notarized for a real publish |
+| Linux x64 | Packaged as `.deb` and `.tar.gz` |
+| Windows x64 | Packaged as an unsigned installer |
 
-Linux is a commented-out entry in `release.yml`'s matrix. The app builds on
-nsh's GTK 4 backend (`main.rs`'s Linux `main`, `mini.rs`'s GTK `imp`,
-`mini_v1/native_linux.rs`), with these left out for now:
+The Linux app builds on nsh's GTK 4 backend (`main.rs`'s Linux `main`,
+`mini.rs`'s GTK `imp`, `mini_v1/native_linux.rs`), with these left out for
+now:
 
 - The Agent Hub is a stub (`agent_hub_linux.rs`): no agent drives a screen,
   and a held press is declined.
@@ -93,8 +106,7 @@ nsh's GTK 4 backend (`main.rs`'s Linux `main`, `mini.rs`'s GTK `imp`,
 The Linux and Windows brokers default to a file keystore under their data
 directory rather than using the macOS login Keychain.
 
-Windows is also a commented-out entry in `release.yml`'s matrix. The app
-and broker build on Windows x64, using nsh's Win32 backend (`main.rs`'s
+The app and broker build on Windows x64, using nsh's Win32 backend (`main.rs`'s
 Windows `main`, `mini_windows.rs`, `mini_v1/native_windows.rs`), with these
 left out for now:
 
@@ -107,7 +119,30 @@ left out for now:
   the child without stopping its engine; theme changes recreate it, and
   design size sets its intrinsic size without scaling.
 
-- The packaging here (`build.sh`, `sign.sh`, `dmg.sh`) is macOS-only.
+### Linux packaging
+
+`scripts/release/build-linux.sh` builds the app without default features, the
+broker, `nsh`, and the Linux host used for pop-outs. It packages the same
+`Resources/` tree for both formats, including the broker, office assets and
+fonts:
+
+- `Buwiz-Bot-<version>-linux-x64.deb` installs under `/opt/buwiz-bot/`, adds
+  `/usr/bin/buwiz-bot` as a symlink, and registers
+  `/usr/share/applications/com.buwiz.bot.desktop` for the `buwiz:` scheme.
+  It depends on GTK 4.14 or later and SQLite 3, plus the runtime libraries
+  reported by `ldd`. When `app/resources/AppIcon.png` exists, the package
+  installs it in the hicolor icon theme.
+- `Buwiz-Bot-<version>-linux-x64.tar.gz` extracts to a versioned top-level
+  directory with `bin/`, `Resources/`, a desktop entry and a short README.
+  Run `bin/buwiz-bot` from the extracted directory. GTK 4.14 or later and
+  SQLite 3 are required.
+
+### Windows packaging
+
+`scripts/release/build-windows.ps1` packages the app under `bin/` with its
+`Resources/` tree and writes
+`Buwiz-Bot-<version>-windows-x64.exe`.
+Windows installer is unsigned (SmartScreen warns).
 
 ## The steps
 
@@ -116,7 +151,9 @@ the version from the bundle's `Info.plist`, so they follow it.
 
 | Script | Does |
 | --- | --- |
-| `build.sh` | Release builds of the app, the broker workspace (`buwiz-broker`) and nsh (`nsh`, `nsh-macos-host`), through `scripts/wait-build`, with `RUSTC_WRAPPER` empty; assembles `dist/Buwiz Bot.app` (the layout of `app/bundle-dev.sh`, without its launcher, gpui-agent token or env exports, and without the gpui-agent server: it builds with `--no-default-features` and refuses a binary that has it). |
+| `build.sh` | Release builds of the app, broker and nsh's `nsh`/`nsh-macos-host`; assembles the macOS app bundle without the dev launcher or gpui-agent server. |
+| `build-linux.sh` | Release builds of the app, broker, nsh's `nsh`/`nsh-linux-host`, then emits the `.deb` and `.tar.gz` with checksums. |
+| `build-windows.ps1` | Builds and packages the Windows x64 installer (unsigned). |
 | `sign.sh [identity]` | Developer ID signing with the hardened runtime, inside out: every Mach-O, then nested bundles, then the app. `-` signs ad hoc (a dry run). |
 | `notarize.sh <app or dmg>` | `notarytool submit --wait`, then `stapler staple` and `stapler validate`. Skips, saying so, without the `NOTARY_*` env (`REQUIRE_NOTARIZATION=1` makes that an error). |
 | `dmg.sh [identity]` | A drag-to-Applications dmg (hdiutil, no new tools), signed, notarized and stapled; writes `<dmg>.sha256` and prints the sha256 and size. |
@@ -125,7 +162,7 @@ the version from the bundle's `Info.plist`, so they follow it.
 | `publish.sh` | Behind `just publish`: picks the version, tags it and starts the workflow. |
 | `override-check.sh` | Stops an override that can't replace what is on R2. |
 | `release-exists.sh <tag>` | Whether GitHub has that release; fails if it can't tell. |
-| `signed-state.sh <files-dir> <status-dir>` | Whether every build recorded that it was signed. |
+| `signed-state.sh <files-dir> <status-dir>` | Whether every macOS build recorded that it was signed; Linux and Windows are unsigned by design. |
 | `gh-publish.sh <files-dir> <out-dir>` | Creates the GitHub release, or updates it in place. |
 | `summary.sh` | The run's summary, from what each step really did. |
 
@@ -195,6 +232,7 @@ Left out on purpose, after inspecting the bundle:
 export CARGO_TARGET_DIR=...   # optional; and BROKER_TARGET_DIR, NSH_TARGET_DIR
 (cd office && npm ci && npm run build:office-editor)
 scripts/release/build.sh
+scripts/release/build-linux.sh
 
 # a dry run, signed ad hoc
 scripts/release/sign.sh -
@@ -217,12 +255,12 @@ header lists them. Output goes to `dist/`
 ## CI
 
 `.github/workflows/release.yml` runs only by `workflow_dispatch`, from the
-version's tag, which is what `just publish` does. On `macos-15` (Apple
-silicon) it builds the office editor and the bundle, imports the
-certificate into a temporary keychain, signs, notarizes and staples the app
-and the dmg, and runs the Gatekeeper checks. One last job writes the
-manifest, uploads to R2 and creates the GitHub release, so a failed build
-publishes nothing.
+version's tag, which is what `just publish` does. Its macOS, Linux and Windows
+jobs build one platform each; macOS imports the certificate into a temporary
+keychain, signs, notarizes and staples the app and dmg, and runs the
+Gatekeeper checks. One last job writes the manifest, uploads to R2 when
+macOS is signed, and creates the GitHub release, so a failed build publishes
+nothing.
 
 `.github/workflows/ci.yml` runs, on every PR, `cargo test -p buwiz-bot -p
 buwiz-office-kit -p buwiz-word -p buwiz-spreadsheet` (the app workspace;
@@ -240,7 +278,7 @@ needed to run the workflow; each group left out changes what the release is:
 
 | Left out | What happens |
 | --- | --- |
-| Any signing secret | An ad-hoc signed dmg, published as a GitHub pre-release and not to R2: macOS blocks it, so buwiz.com shouldn't offer it |
+| Any macOS signing secret | An ad-hoc signed macOS dmg, published as a GitHub pre-release and not to R2; Linux and Windows artifacts remain included and unsigned by design |
 | Any R2 secret | A signed GitHub release, not on R2, so buwiz.com keeps saying there is no release |
 
 The run warns, naming what is missing. Add them and `just publish <version>`

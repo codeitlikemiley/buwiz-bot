@@ -5,8 +5,10 @@ name: Release
 # version's tag: no push, PR or merge does. docs/release.md has the rest.
 #
 # A secret left unset degrades, it doesn't fail:
-#   no signing secrets  an unsigned dmg, a GitHub pre-release, nothing on R2
+#   no signing secrets  an unsigned macOS dmg, a GitHub pre-release, nothing on R2
 #   no R2 secrets       a GitHub release, nothing on R2
+# Linux and Windows builds are unsigned by design; only macOS signing gates a
+# real publish.
 # The exception is a replace, which stops if R2 holds the version and this run
 # can't write it, unless keep_r2 says to leave those files live.
 on:
@@ -138,20 +140,14 @@ jobs:
             # release-file-{platform}-{arch}-{kind}: manifest.py reads this
             artifact: release-file-macos-arm64-dmg
             files: dist/*.dmg
-          # Switched off: the Bot doesn't run on these yet, so there is nothing
-          # to ship. app/src/main.rs's main only exits there, app/Cargo.toml
-          # takes no nsh Linux or Windows backend, and the office crates and
-          # the Agent Hub are macOS-only (docs/release.md, "Targets"). Turning
-          # one on takes that port, then packaging steps here: every step
-          # below is macOS's.
-          # - target: linux-x64
-          #   runner: ubuntu-24.04
-          #   artifact: release-file-linux-x64-deb
-          #   files: dist/*.deb
-          # - target: windows-x64
-          #   runner: windows-2025
-          #   artifact: release-file-windows-x64-exe
-          #   files: dist/*.exe
+          - target: linux-x64
+            runner: ubuntu-24.04
+            artifact: release-file-linux-x64-deb
+            files: dist/*.deb
+          - target: windows-x64
+            runner: windows-2025
+            artifact: release-file-windows-x64-exe
+            files: dist/*.exe
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,6 +155,7 @@ jobs:
 
       - name: Signing inputs
         id: inputs
+        if: matrix.target == 'macos-arm64'
         shell: bash
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
@@ -181,7 +178,7 @@ jobs:
       # Before the build, so a wrong certificate, password or notary key fails
       # in seconds, not after the hour the build takes.
       - name: Import the Developer ID certificate into a temporary keychain
-        if: steps.inputs.outputs.signed == 'true'
+        if: matrix.target == 'macos-arm64' && steps.inputs.outputs.signed == 'true'
         shell: bash
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
@@ -215,7 +212,7 @@ jobs:
           echo "SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
       - name: The notary key works
-        if: steps.inputs.outputs.signed == 'true'
+        if: matrix.target == 'macos-arm64' && steps.inputs.outputs.signed == 'true'
         shell: bash
         env:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
@@ -240,6 +237,13 @@ jobs:
           npm ci
           npm run build:office-editor
 
+      - name: Linux build dependencies
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libgtk-4-dev libsqlite3-dev
+
       - uses: Swatinem/rust-cache@v2
         with:
           # keep the build when a later step (signing, notarizing) fails,
@@ -251,14 +255,25 @@ jobs:
             nsh
 
       - name: Build the release bundle
+        if: matrix.target == 'macos-arm64'
         shell: bash
         env:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           scripts/release/build.sh
 
+      - name: Build the Linux packages
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: scripts/release/build-linux.sh
+
+      - name: Build the Windows installer
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        run: ./scripts/release/build-windows.ps1
+
       - name: Sign, notarize and staple the app
-        if: steps.inputs.outputs.signed == 'true'
+        if: matrix.target == 'macos-arm64' && steps.inputs.outputs.signed == 'true'
         shell: bash
         env:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
@@ -270,10 +285,11 @@ jobs:
           scripts/release/notarize.sh dist/*.app
 
       - name: Sign ad hoc (dry run)
-        if: steps.inputs.outputs.signed != 'true'
+        if: matrix.target == 'macos-arm64' && steps.inputs.outputs.signed != 'true'
         run: scripts/release/sign.sh -
 
       - name: Make, sign, notarize and staple the dmg
+        if: matrix.target == 'macos-arm64'
         shell: bash
         env:
           SIGNED: ${{ steps.inputs.outputs.signed }}
@@ -289,6 +305,7 @@ jobs:
           fi
 
       - name: The built app is this version
+        if: matrix.target == 'macos-arm64'
         shell: bash
         run: |
           built="$(plutil -extract CFBundleShortVersionString raw -o - dist/*.app/Contents/Info.plist)"
@@ -298,7 +315,7 @@ jobs:
           fi
 
       - name: Gatekeeper check
-        if: steps.inputs.outputs.signed == 'true'
+        if: matrix.target == 'macos-arm64' && steps.inputs.outputs.signed == 'true'
         shell: bash
         run: |
           spctl -a -vvv -t exec dist/*.app
@@ -311,21 +328,38 @@ jobs:
           done
 
       - uses: actions/upload-artifact@v4
+        if: matrix.target != 'linux-x64'
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 7
           path: ${{ matrix.files }}
 
+      - name: Upload Linux tarball
+        if: matrix.target == 'linux-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-file-linux-x64-targz
+          if-no-files-found: error
+          retention-days: 7
+          path: dist/*.tar.gz
+
       - name: Note whether it was signed
+        if: always()
         shell: bash
         env:
+          TARGET: ${{ matrix.target }}
           SIGNED: ${{ steps.inputs.outputs.signed }}
         run: |
           mkdir -p status
-          echo "$SIGNED" > status/signed
+          if [ "$TARGET" = macos-arm64 ]; then
+            printf '%s\n' "${SIGNED:-false}" > status/signed
+          else
+            echo false > status/signed
+          fi
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: release-status-${{ matrix.target }}
           if-no-files-found: error
@@ -333,7 +367,7 @@ jobs:
           path: status/signed
 
       - name: Remove the signing material
-        if: always()
+        if: always() && matrix.target == 'macos-arm64'
         shell: bash
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
@@ -367,7 +401,7 @@ jobs:
       - name: Manifest and checksums
         run: python3 scripts/release/manifest.py files "$VERSION" out
 
-      - name: Was every target signed
+      - name: Was macOS signed
         id: state
         shell: bash
         run: echo "signed=$(scripts/release/signed-state.sh files status)" >> "$GITHUB_OUTPUT"

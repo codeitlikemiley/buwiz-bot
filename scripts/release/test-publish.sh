@@ -349,6 +349,21 @@ same "SHA256SUMS checks out" "$(cd "$FILES/release-file-macos-arm64-dmg" && shas
   "Buwiz-Bot-0.1.0-macos-arm64.dmg: OK"
 has "manifest: a file of another version" "$(python3 -I "$HERE/manifest.py" "$FILES" 0.2.0 "$TMP/o2" 2>&1)" "carrying 0.2.0"
 
+NEW_FILES="$TMP/new-platform-files"
+mkdir -p "$NEW_FILES/release-file-linux-x64-deb" "$NEW_FILES/release-file-linux-x64-targz" \
+  "$NEW_FILES/release-file-windows-x64-exe"
+printf 'deb' > "$NEW_FILES/release-file-linux-x64-deb/Buwiz-Bot-0.1.0-linux-x64.deb"
+printf 'tar' > "$NEW_FILES/release-file-linux-x64-targz/Buwiz-Bot-0.1.0-linux-x64.tar.gz"
+printf 'exe' > "$NEW_FILES/release-file-windows-x64-exe/Buwiz-Bot-0.1.0-windows-x64.exe"
+PUBLISHED_AT=2026-11-07T00:00:00Z python3 -I "$HERE/manifest.py" "$NEW_FILES" 0.1.0 "$TMP/new-out" > /dev/null
+same "manifest: the new platform and kind entries" "$(python3 -I -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+print(sorted((f["platform"], f["arch"], f["kind"]) for f in m["files"]))
+print(sorted(m), sorted(m["files"][0]))' "$TMP/new-out/manifest.json")" \
+  "[('linux', 'x64', 'deb'), ('linux', 'x64', 'targz'), ('windows', 'x64', 'exe')]
+['files', 'published_at', 'version'] ['arch', 'file', 'kind', 'platform', 'sha256', 'size']"
+
 NEAR="$TMP/near"
 near() { # <file name>: manifest.py's verdict on that name for 0.1.1
   rm -rf "$NEAR"
@@ -378,7 +393,23 @@ same "signed: false is not signed" "$(state)" false
 echo true > "$ST/status/release-status-macos-arm64/signed"
 same "signed: true is signed" "$(state)" true
 mkdir -p "$ST/files/release-file-linux-x64-deb"
-same "signed: a build with no status is not signed" "$(state)" false
+mkdir -p "$ST/files/release-file-windows-x64-exe"
+mkdir -p "$ST/status/release-status-linux-x64" "$ST/status/release-status-windows-x64"
+echo false > "$ST/status/release-status-linux-x64/signed"
+echo false > "$ST/status/release-status-windows-x64/signed"
+same "signed: unsigned Linux and Windows builds do not block macOS" "$(state)" true
+rm "$ST/status/release-status-macos-arm64/signed"
+same "signed: missing macOS status is not signed" "$(state)" false
+echo true > "$ST/status/release-status-macos-arm64/signed"
+same "signed: Linux and Windows statuses are ignored" "$(state)" true
+
+ST_NO_MAC="$TMP/st-no-mac"
+mkdir -p "$ST_NO_MAC/files/release-file-linux-x64-deb" "$ST_NO_MAC/files/release-file-windows-x64-exe" \
+  "$ST_NO_MAC/status/release-status-linux-x64" "$ST_NO_MAC/status/release-status-windows-x64"
+echo true > "$ST_NO_MAC/status/release-status-linux-x64/signed"
+echo true > "$ST_NO_MAC/status/release-status-windows-x64/signed"
+same "signed: unsigned-platform statuses cannot make a release signed" \
+  "$("$HERE/signed-state.sh" "$ST_NO_MAC/files" "$ST_NO_MAC/status")" false
 
 # ---- release-exists.sh ----
 exists() { echo "$1" > "$TMP/view"; "$HERE/release-exists.sh" v0.1.0 2>/dev/null; echo "exit=$?"; }
@@ -434,6 +465,10 @@ sum() { # <signed> <replace> <r2 ready> <r2 outcome> <gh outcome>
 # shellcheck disable=SC2016 # literal backticks
 has "summary: uploaded" "$(sum true false true success success)" 'On R2 under `bot/releases/v0.1.0/`'
 has "summary: a new version off R2" "$(sum true false false skipped success)" "Not on R2"
+unsigned="$(sum false false true skipped success)"
+has "summary: unsigned names macOS as the signing requirement" "$unsigned" "macOS is not Developer ID signed"
+has "summary: unsigned Linux and Windows are intentional" "$unsigned" "Linux and Windows are unsigned by design"
+has "summary: unsigned macOS makes GitHub a pre-release" "$unsigned" "GitHub release v0.1.0 is up as a pre-release"
 out="$(sum false true true skipped success)"
 has "summary: an override off R2 says the old files stay" "$out" "stay live"
 hasnt "summary: and doesn't say it isn't on R2" "$out" "Not on R2"

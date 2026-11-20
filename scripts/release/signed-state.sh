@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Prints true only if every built target recorded that it was signed, and
-# false otherwise: no status, an empty one or a target without one all mean
-# not signed. An unsigned build must never reach R2 as a full release.
+# Prints true only if every macOS build recorded that it was signed.
+# Linux and Windows builds are unsigned by design and do not affect the state.
 #
 #   scripts/release/signed-state.sh <files-dir> <status-dir>
 #
@@ -15,12 +14,12 @@ set -uo pipefail
 }
 
 builds=0
-for dir in "$1"/release-file-*/; do
+for dir in "$1"/release-file-macos-*/; do
   [ -d "$dir" ] && builds=$((builds + 1))
 done
 
 statuses=0
-for file in "$2"/release-status-*/signed; do
+for file in "$2"/release-status-macos-*/signed; do
   [ -f "$file" ] || continue
   statuses=$((statuses + 1))
   if [ "$(cat "$file")" != true ]; then

@@ -7,9 +7,9 @@ set -uo pipefail
 echo "### Buwiz Bot $VERSION"
 echo
 if [ "$SIGNED" = true ]; then
-  echo "- Signed and notarized."
+  echo "- macOS is signed and notarized."
 else
-  echo "- **Not signed.** Add the signing secrets and run \`just publish $VERSION\`."
+  echo "- **macOS is not Developer ID signed and notarized.** Add the signing secrets and run \`just publish $VERSION\`. Linux and Windows are unsigned by design."
 fi
 
 case "$R2_OUTCOME" in
