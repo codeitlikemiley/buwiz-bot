@@ -1,7 +1,6 @@
-//! Where the app bundle's `Contents/Resources` are: beside the running
-//! executable, else in the dev bundle in `~/Applications` (for a bare
-//! `target/debug/buwiz-bot`), Buwiz Bot.app's and then Rox.app's, the bundle
-//! before the rename.
+//! Where bundled `Resources` are: beside the running executable, else in the
+//! dev bundle in `~/Applications` (for a bare `target/debug/buwiz-bot`),
+//! Buwiz Bot.app's and then Rox.app's, the bundle before the rename.
 
 use std::path::{Path, PathBuf};
 
@@ -9,8 +8,8 @@ use std::path::{Path, PathBuf};
 pub const APP_BUNDLE: &str = "Buwiz Bot.app";
 pub const OLD_APP_BUNDLE: &str = "Rox.app";
 
-/// The bundle's `Contents/Resources/<sub>` beside the executable `exe`
-/// (`<bundle>/Contents/MacOS/<exe>`).
+/// The `Resources/<sub>` beside the executable `exe`:
+/// `<bundle>/Contents/MacOS/<exe>` or `<install>/bin/<exe>`.
 pub fn exe_resources(exe: &Path, sub: &str) -> Option<PathBuf> {
     exe.parent().and_then(Path::parent).map(|contents| contents.join("Resources").join(sub))
 }
@@ -39,6 +38,10 @@ mod tests {
     fn bundled_files_are_beside_the_executable_then_in_either_dev_bundle() {
         let exe = Path::new("/X/Buwiz Bot.app/Contents/MacOS/buwiz-bot-bin");
         assert_eq!(exe_resources(exe, "fonts"), Some(PathBuf::from("/X/Buwiz Bot.app/Contents/Resources/fonts")));
+        assert_eq!(
+            exe_resources(Path::new("/opt/buwiz-bot/bin/buwiz-bot"), "fonts/office"),
+            Some(PathBuf::from("/opt/buwiz-bot/Resources/fonts/office"))
+        );
         assert_eq!(installed_resources(Path::new("/Users/u"), "fonts/office"), [
             PathBuf::from("/Users/u/Applications/Buwiz Bot.app/Contents/Resources/fonts/office"),
             PathBuf::from("/Users/u/Applications/Rox.app/Contents/Resources/fonts/office"),

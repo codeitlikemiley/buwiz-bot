@@ -8,7 +8,7 @@
 //!
 //! The font ships in the app bundle, not in git: `app/bundle-dev.sh`
 //! fetches the pinned file and copies it, with its licence, into
-//! `Contents/Resources/fonts/`.
+//! `Resources/fonts/` beside the executable.
 //!
 //! The font's current glyph differs from the web's SVG for a few names
 //! (the web's set is older); those draw the web's own path data instead,
@@ -144,7 +144,7 @@ pub fn has(name: &str) -> bool {
 }
 
 /// The font file's bytes: in the app bundle beside the executable
-/// (`Contents/Resources/fonts/`), else in the dev bundle
+/// (`Resources/fonts/`), else in the dev bundle
 /// (`~/Applications/Buwiz Bot.app`, then `Rox.app`, for a bare
 /// `target/debug/buwiz-bot`). `None` without either: the icons draw nothing.
 pub fn font_data() -> Option<Vec<u8>> {

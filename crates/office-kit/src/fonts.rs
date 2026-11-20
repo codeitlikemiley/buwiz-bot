@@ -7,7 +7,7 @@
 //!
 //! The files ship in the app bundle, not in git: `app/bundle-dev.sh`
 //! copies them from `office/node_modules/@betteroffice/fonts/assets` into
-//! `Contents/Resources/fonts/office/`. Dev runs and tests read them from
+//! `Resources/fonts/office/` beside the executable. Dev runs and tests read them from
 //! there, from `BUWIZ_OFFICE_FONTS`, or from the checkout's node_modules.
 //! On Apple platforms CoreText registers them before the first paint
 //! ([`register`]); on Linux the root passes their bytes to nsh's per-app

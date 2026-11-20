@@ -16,11 +16,15 @@ use buwiz_broker::front_door::FrontDoor;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() == 1 && args[0] == "--version" {
+        println!("buwiz-broker {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if let Err(why) = buwiz_protocol::env::refuse_old_names() {
         eprintln!("buwiz-broker: {why}");
         std::process::exit(2);
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("keystore-check") => std::process::exit(keystore_check(&args[1..])),
         Some("sign-manifest") => std::process::exit(match buwiz_broker::v1::signing::cli(&args[1..]) {

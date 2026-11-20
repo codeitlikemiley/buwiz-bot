@@ -2,8 +2,8 @@
 //! own. The route writes a mount wrapper (`windows/pop-<name>[-<v>].tsx`),
 //! builds it once with `nsh build -o` (the bundle is cached by a key over
 //! the wrapper, the module it mounts and the nsh binaries; [`build_key`])
-//! and starts `nsh-macos-host` on the bundle, detached, its output in the
-//! build dir's `host.log`.
+//! and starts the platform's nsh host on the bundle, detached, its output in
+//! the build dir's `host.log`.
 //! One window per key (`R1`, `R1@v2`): a second press raises the open one,
 //! a newer head replaces it. `/app/version` reopens an open window on the
 //! new head and the `close_app` tool ends an app's windows, both through
@@ -15,7 +15,7 @@
 //! fails and is ignored.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -40,7 +40,7 @@ const WRAPPER: &str = include_str!("popout_wrapper.tsx");
 /// The `source()` helper the wrapper imports before the module, with its `${url}`.
 const SOURCE_HELPER: &str = include_str!("popout_source.tsx");
 
-/// `capabilities.json` beside a pop-out's bundle: what `nsh-macos-host --bundle` enforces on
+/// `capabilities.json` beside a pop-out's bundle: what the nsh host enforces on
 /// it (a bundle with the file may do only what it lists; without, everything). The network
 /// is exactly GET and POST on the widget's `/state/<name>` and POST on its one `call` path,
 /// both on this broker's `port` only; `window` and `clipboard` are what the mount wrapper
@@ -199,16 +199,36 @@ fn env_or(k: &str, default: &str) -> String {
     buwiz_protocol::env::var(k).filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_owned())
 }
 
-/// `NSH`, and `NSH_HOST`, else `nsh-macos-host` beside NSH
-/// when NSH is a path, else on PATH.
+/// `NSH`, and `NSH_HOST`, else the platform's host beside NSH when NSH is a
+/// path, else on PATH.
+fn default_host_name() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "nsh-linux-host"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "nsh-windows-host.exe"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        "nsh-macos-host"
+    }
+}
+
+fn default_host_path(nsh: &str) -> PathBuf {
+    let path = Path::new(nsh);
+    if path.components().count() > 1 {
+        path.parent().unwrap_or(Path::new("")).join(default_host_name())
+    } else {
+        PathBuf::from(default_host_name())
+    }
+}
+
 fn nsh_bins() -> (String, String) {
     let nsh = env_or("NSH", "nsh");
     let host = std::env::var("NSH_HOST").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| {
-        if nsh.contains('/') {
-            Path::new(&nsh).parent().unwrap_or(Path::new("")).join("nsh-macos-host").to_string_lossy().into_owned()
-        } else {
-            "nsh-macos-host".into()
-        }
+        default_host_path(&nsh).to_string_lossy().into_owned()
     });
     (nsh, host)
 }
@@ -232,10 +252,10 @@ fn build_key(wrapper: &str, module: &[u8], nsh: &str, host: &str) -> String {
 /// and the name when it can't be found or read.
 fn bin_identity(bin: &str) -> String {
     static SEEN: OnceLock<Mutex<HashMap<(std::path::PathBuf, u64, Option<std::time::SystemTime>), String>>> = OnceLock::new();
-    let path = if bin.contains('/') {
+    let path = if Path::new(bin).components().count() > 1 {
         Some(std::path::PathBuf::from(bin))
     } else {
-        std::env::var("PATH").ok().and_then(|p| p.split(':').map(|d| Path::new(d).join(bin)).find(|p| p.is_file()))
+        std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(bin)).find(|p| p.is_file()))
     };
     let Some(path) = path else { return format!("missing:{bin}") };
     let Ok(meta) = std::fs::metadata(&path) else { return format!("missing:{bin}") };
@@ -572,6 +592,23 @@ async fn popout(ctx: Arc<HubCtx>, req: HubRequest) -> HubResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popout_host_defaults_to_the_platform_host() {
+        let expected = if cfg!(target_os = "linux") {
+            "nsh-linux-host"
+        } else if cfg!(target_os = "windows") {
+            "nsh-windows-host.exe"
+        } else {
+            "nsh-macos-host"
+        };
+        assert_eq!(default_host_name(), expected);
+        assert_eq!(
+            default_host_path("/opt/buwiz-bot/Resources/broker/bin/nsh"),
+            Path::new("/opt/buwiz-bot/Resources/broker/bin").join(expected)
+        );
+        assert_eq!(default_host_path("nsh"), PathBuf::from(expected));
+    }
 
     #[test]
     fn popout_wrapper_fills_every_placeholder_once() {

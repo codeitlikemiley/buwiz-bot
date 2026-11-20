@@ -1,7 +1,7 @@
 //! Buwiz Bot starts its broker (plan 7.2, decision O6; no LaunchAgent). At
 //! launch, when nothing answers on the broker's default origin
 //! ([`client::DEFAULT_GEN`]), Buwiz Bot runs the `buwiz-broker` its own bundle
-//! carries (`Contents/Resources/broker/`, put there by `bundle-dev.sh`):
+//! or install carries (`Contents/Resources/broker/` or `Resources/broker/`):
 //! the hub on, hosting the v1 plugins and MCP servers, on the
 //! owner's broker folder (`~/Library/Application Support/Buwiz Broker`,
 //! moved there from `Grok Shell` once, just before this start:
@@ -246,15 +246,37 @@ fn probe(addr: SocketAddr) -> Answer {
 /// The bundled broker's file name.
 pub const BROKER_NAME: &str = "buwiz-broker";
 
-/// The broker in the bundle `exe` runs from (`<app>/Contents/MacOS/<exe>`
-/// → `<app>/Contents/Resources/broker/buwiz-broker`) when it `is_file`;
+#[cfg(target_os = "windows")]
+const NSH_BINARY_NAME: &str = "nsh.exe";
+#[cfg(not(target_os = "windows"))]
+const NSH_BINARY_NAME: &str = "nsh";
+
+#[cfg(target_os = "windows")]
+const NSH_HOST_NAME: &str = "nsh-windows-host.exe";
+#[cfg(target_os = "linux")]
+const NSH_HOST_NAME: &str = "nsh-linux-host";
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+const NSH_HOST_NAME: &str = "nsh-macos-host";
+
+/// The broker beside the executable `exe` (`<app>/Contents/MacOS/<exe>`
+/// → `<app>/Contents/Resources/broker/buwiz-broker`, or
+/// `<install>/bin/<exe>` → `<install>/Resources/broker/buwiz-broker`)
 /// `None` outside a bundle or without it.
 pub fn bundled_broker(exe: &Path, is_file: impl Fn(&Path) -> bool) -> Option<PathBuf> {
-    let macos = exe.parent()?;
-    let contents = macos.parent()?;
-    let shape = macos.file_name()? == "MacOS" && contents.file_name()? == "Contents";
-    let dir = shape.then(|| contents.join("Resources").join("broker"))?;
-    Some(dir.join(BROKER_NAME)).filter(|b| is_file(b))
+    bundled_broker_with_suffix(exe, std::env::consts::EXE_SUFFIX, is_file)
+}
+
+fn bundled_broker_with_suffix(exe: &Path, suffix: &str, is_file: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    let exe_dir = exe.parent()?;
+    let resources = if exe_dir.file_name()? == "MacOS" && exe_dir.parent()?.file_name()? == "Contents" {
+        exe_dir.parent()?.join("Resources")
+    } else if exe_dir.file_name()? == "bin" {
+        exe_dir.parent()?.join("Resources")
+    } else {
+        return None;
+    };
+    let broker = resources.join("broker").join(format!("{BROKER_NAME}{suffix}"));
+    is_file(&broker).then_some(broker)
 }
 
 /// How the broker is started.
@@ -305,10 +327,10 @@ pub fn move_data_dir(home: &Path, busy: &dyn Fn() -> bool) -> buwiz_protocol::br
 /// (`broker/server`). The broker's hub, plugin host and MCP host are always
 /// on: it needs no flag and no switch (`--no-node` and `BUWIZ_BROKER_HUB` and
 /// the like are still accepted by it, and no longer passed).
-/// `nsh` and `nsh-macos-host` are the bundle's (`broker/bin/`, as Grok
-/// Shell.app set them): a Finder-launched Buwiz Bot has no nsh on PATH. The
-/// widget pipeline runs `nsh build`/`check`, pop-outs `nsh-macos-host`,
-/// which loads generated modules from `NSH_CHUNK_DIR`.
+/// `nsh` and the platform's host are the bundle's (`broker/bin/`): a
+/// desktop-launched Buwiz Bot has no nsh on PATH. The widget pipeline runs
+/// `nsh build`/`check`, pop-outs the matching host, which loads generated
+/// modules from `NSH_CHUNK_DIR`.
 pub fn launch(broker: &Path, home: &Path, port: u16) -> Launch {
     let data = data_dir(home);
     let dir = broker.parent().unwrap_or(Path::new("."));
@@ -323,8 +345,8 @@ pub fn launch(broker: &Path, home: &Path, port: u16) -> Launch {
     ];
     let env = vec![
         ("BUWIZ_BROKER_DATA_DIR", data.clone().into()),
-        ("NSH", dir.join("bin").join("nsh").into()),
-        ("NSH_HOST", dir.join("bin").join("nsh-macos-host").into()),
+        ("NSH", dir.join("bin").join(NSH_BINARY_NAME).into()),
+        ("NSH_HOST", dir.join("bin").join(NSH_HOST_NAME).into()),
         ("NSH_CHUNK_DIR", data.join("chunks").into()),
     ];
     let mut env_remove = vec!["GPUI_AGENT", "GPUI_AGENT_TOKEN", "GPUI_AGENT_TOKEN_FILE", "GPUI_AGENT_ADDR", "GPUI_AGENT_ALLOW_RELEASE", "PORT"];
@@ -671,7 +693,10 @@ mod tests {
         let any = |_: &Path| true;
         assert_eq!(
             bundled_broker(Path::new("/A/Buwiz Bot.app/Contents/MacOS/buwiz-bot-bin"), any),
-            Some(PathBuf::from("/A/Buwiz Bot.app/Contents/Resources/broker/buwiz-broker"))
+            Some(PathBuf::from(format!(
+                "/A/Buwiz Bot.app/Contents/Resources/broker/{BROKER_NAME}{}",
+                std::env::consts::EXE_SUFFIX
+            )))
         );
         // only the broker's own name counts
         let other = |b: &Path| b.ends_with("broker/other-broker");
@@ -679,6 +704,20 @@ mod tests {
         assert_eq!(bundled_broker(Path::new("/A/Buwiz Bot.app/Contents/MacOS/buwiz-bot-bin"), |_: &Path| false), None);
         assert_eq!(bundled_broker(Path::new("/r/app/target/debug/buwiz-bot"), any), None);
         assert_eq!(bundled_broker(Path::new("/buwiz-bot"), any), None);
+        assert_eq!(
+            bundled_broker(Path::new("/opt/buwiz-bot/bin/buwiz-bot"), any),
+            Some(PathBuf::from(format!(
+                "/opt/buwiz-bot/Resources/broker/{BROKER_NAME}{}",
+                std::env::consts::EXE_SUFFIX
+            )))
+        );
+    }
+
+    #[test]
+    fn a_bin_install_uses_the_windows_broker_suffix() {
+        let exe = Path::new("/opt/buwiz-bot/bin/buwiz-bot.exe");
+        let expected = PathBuf::from("/opt/buwiz-bot/Resources/broker/buwiz-broker.exe");
+        assert_eq!(bundled_broker_with_suffix(exe, ".exe", |path| path == expected), Some(expected));
     }
 
     #[test]
@@ -699,13 +738,15 @@ mod tests {
                 "/A/Buwiz Bot.app/Contents/Resources/broker/server"
             ]
         );
+        let nsh = format!("/A/Buwiz Bot.app/Contents/Resources/broker/bin/{NSH_BINARY_NAME}");
+        let host = format!("/A/Buwiz Bot.app/Contents/Resources/broker/bin/{NSH_HOST_NAME}");
         let env: Vec<(&str, &str)> = l.env.iter().map(|(k, v)| (*k, v.to_str().unwrap())).collect();
         assert_eq!(
             env,
             [
                 ("BUWIZ_BROKER_DATA_DIR", data),
-                ("NSH", "/A/Buwiz Bot.app/Contents/Resources/broker/bin/nsh"),
-                ("NSH_HOST", "/A/Buwiz Bot.app/Contents/Resources/broker/bin/nsh-macos-host"),
+                ("NSH", nsh.as_str()),
+                ("NSH_HOST", host.as_str()),
                 ("NSH_CHUNK_DIR", "/Users/u/Library/Application Support/Buwiz Broker/chunks")
             ]
         );
@@ -720,8 +761,8 @@ mod tests {
     fn nsh_is_the_bundles_and_chunks_go_to_the_data_dir() {
         let l = launch(Path::new("/B/Buwiz Bot.app/Contents/Resources/broker/buwiz-broker"), Path::new("/Users/v"), 8800);
         let get = |k: &str| l.env.iter().find(|(n, _)| *n == k).map(|(_, v)| PathBuf::from(v));
-        assert_eq!(get("NSH"), Some(PathBuf::from("/B/Buwiz Bot.app/Contents/Resources/broker/bin/nsh")));
-        assert_eq!(get("NSH_HOST"), Some(PathBuf::from("/B/Buwiz Bot.app/Contents/Resources/broker/bin/nsh-macos-host")));
+        assert_eq!(get("NSH"), Some(PathBuf::from("/B/Buwiz Bot.app/Contents/Resources/broker/bin").join(NSH_BINARY_NAME)));
+        assert_eq!(get("NSH_HOST"), Some(PathBuf::from("/B/Buwiz Bot.app/Contents/Resources/broker/bin").join(NSH_HOST_NAME)));
         assert_eq!(get("NSH_CHUNK_DIR"), Some(l.data.join("chunks")));
     }
 

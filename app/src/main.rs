@@ -11,6 +11,13 @@
 #[cfg(target_os = "macos")]
 use nsh_platform_macos as platform;
 
+fn report_version_if_requested() {
+    if std::env::args_os().nth(1).is_some_and(|arg| arg == "--version") {
+        println!("buwiz-bot {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+}
+
 /// The process logger: `env_logger` as before, plus every `nsh::jank`
 /// line (a frame over budget, a slow engine wake-up, and what each did —
 /// logged while the performance monitor runs, ⌘⇧F) appended to
@@ -184,6 +191,7 @@ fn refuse_start(why: &str) -> ! {
 
 #[cfg(target_os = "macos")]
 fn main() -> impl std::process::Termination {
+    report_version_if_requested();
     // a test bundle started bare would act as the owner's Bot
     if let Some(why) = buwiz_bot::broker::refusal() {
         eprintln!("buwiz-bot: {why}");
@@ -239,6 +247,7 @@ fn main() -> impl std::process::Termination {
 
 #[cfg(target_os = "ios")]
 fn main() {
+    report_version_if_requested();
     nsh_platform_ios::set_ui_sets(ui_sets());
     nsh_ios_app::run_rust(app_root());
 }
@@ -248,6 +257,7 @@ fn main() {
 #[cfg(target_os = "linux")]
 fn main() -> impl std::process::Termination {
     use nsh_platform_linux as platform;
+    report_version_if_requested();
     if let Some(why) = buwiz_bot::broker::refusal() {
         eprintln!("buwiz-bot: {why}");
         std::process::exit(2);
@@ -296,6 +306,7 @@ fn refuse_start(why: &str) -> ! {
 #[cfg(windows)]
 fn main() -> impl std::process::Termination {
     use nsh_platform_windows as platform;
+    report_version_if_requested();
     if let Some(why) = buwiz_bot::broker::refusal() {
         refuse_start(&why);
     }
@@ -328,6 +339,7 @@ fn main() -> impl std::process::Termination {
 
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux", windows)))]
 fn main() {
+    report_version_if_requested();
     eprintln!("buwiz-bot runs on macOS (`cargo run`) and iOS (packaged by ../ios.sh)");
     std::process::exit(1);
 }
