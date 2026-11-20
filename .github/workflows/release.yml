@@ -232,10 +232,30 @@ jobs:
           cache: npm
           cache-dependency-path: office/package-lock.json
       - name: Office editor and fonts (office/)
+        if: matrix.target != 'windows-x64'
         working-directory: office
         run: |
           npm ci
           npm run build:office-editor
+
+      - name: Windows build dependencies
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        run: |
+          choco upgrade innosetup --version=6.7.1 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+
+      - name: Windows office editor and fonts (office/)
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        working-directory: office
+        env:
+          npm_config_script_shell: C:\Program Files\Git\bin\bash.exe
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+          npm run build:office-editor
+          if ($LASTEXITCODE -ne 0) { throw "office editor build failed" }
 
       - name: Linux build dependencies
         if: matrix.target == 'linux-x64'

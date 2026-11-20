@@ -28,10 +28,20 @@ const SUPPORT: &str = "Library/Application Support";
 
 /// HOME, falling back to USERPROFILE on Windows.
 pub fn home() -> PathBuf {
-    let home = std::env::var_os("HOME");
     #[cfg(windows)]
-    let home = home.filter(|h| !h.is_empty()).or_else(|| std::env::var_os("USERPROFILE"));
-    PathBuf::from(home.unwrap_or_default())
+    { try_home().expect("an absolute Windows home directory is required") }
+    #[cfg(not(windows))]
+    { PathBuf::from(std::env::var_os("HOME").unwrap_or_default()) }
+}
+
+/// An absolute HOME or USERPROFILE; never the process's working directory.
+#[cfg(windows)]
+pub fn try_home() -> Result<PathBuf, &'static str> {
+    ["HOME", "USERPROFILE"].into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .find(|home| home.is_absolute())
+        .ok_or("Neither HOME nor USERPROFILE names an absolute home directory; refusing to use the working directory.")
 }
 
 /// Where the app keeps its data: `BUWIZ_DATA_DIR`, else

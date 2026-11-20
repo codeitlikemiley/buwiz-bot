@@ -57,22 +57,59 @@ fn home_prefers_home_then_windows_profile() {
         let expected = PathBuf::from(expected);
         assert_eq!(buwiz_bot::identity::home(), expected);
         assert_eq!(buwiz_bot::identity::data_dir(), expected.join("Library/Application Support/Buwiz Bot"));
+        let launch = buwiz_bot::broker::launch(std::path::Path::new(r"C:\installed\Resources\broker\buwiz-broker.exe"), &buwiz_bot::identity::home(), 8787);
+        assert_eq!(launch.data, expected.join("Library/Application Support/Buwiz Broker"));
+        assert!(launch.data.is_absolute());
+        assert!(launch.log.is_absolute());
+        assert!(launch.args.windows(2).any(|args| args[0] == "--data" && args[1] == launch.data.as_os_str()));
         return;
     }
-    for home in [Some(r"C:\buwiz-test-home"), Some(""), None] {
+    for home in [Some(r"C:\buwiz-test-home"), Some(""), None, Some("relative-home"), Some(r"C:drive-relative")] {
         let profile = r"C:\buwiz-test-profile";
         let mut child = Command::new(std::env::current_exe().unwrap());
         child.args(["--exact", "home_prefers_home_then_windows_profile", "--nocapture"])
             .env_remove("HOME")
             .env_remove("BUWIZ_DATA_DIR")
             .env("USERPROFILE", profile)
-            .env("BUWIZ_WINDOWS_HOME_CASE", home.filter(|h| !h.is_empty()).unwrap_or(profile));
+            .env("BUWIZ_WINDOWS_HOME_CASE", home.filter(|h| std::path::Path::new(h).is_absolute()).unwrap_or(profile));
         if let Some(home) = home {
             child.env("HOME", home);
         }
         let output = child.output().unwrap();
         assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     }
+}
+
+#[test]
+fn a_missing_absolute_windows_home_is_refused() {
+    if std::env::var_os("BUWIZ_WINDOWS_HOME_ERROR_CASE").is_some() {
+        let error = buwiz_bot::identity::try_home().unwrap_err();
+        assert!(error.contains("absolute home directory"));
+        assert!(error.contains("refusing to use the working directory"));
+        return;
+    }
+    for value in [None, Some(""), Some("relative-home"), Some(r"C:drive-relative"), Some(r"\root-relative")] {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "a_missing_absolute_windows_home_is_refused", "--nocapture"])
+            .env_remove("HOME").env_remove("USERPROFILE")
+            .env("BUWIZ_WINDOWS_HOME_ERROR_CASE", "1");
+        if let Some(value) = value {
+            child.env("HOME", value).env("USERPROFILE", value);
+        }
+        let output = child.output().unwrap();
+        assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn windows_broker_startup_uses_the_validated_profile() {
+    let source = include_str!("../src/broker.rs").replace("\r\n", "\n");
+    let run = source.split("fn run() -> Decision {").nth(1).unwrap().split("/// At launch").next().unwrap();
+    assert!(run.contains("#[cfg(windows)]\n    let home = crate::identity::home();"));
+    assert!(run.contains("launch(&broker, &home, addr.port())"));
+    let source = include_str!("../src/main.rs").replace("\r\n", "\n");
+    let main = source.split("#[cfg(windows)]\nfn main()").nth(1).unwrap();
+    assert!(main.find("identity::try_home()").unwrap() < main.find("broker::ensure_started()").unwrap());
 }
 
 #[test]

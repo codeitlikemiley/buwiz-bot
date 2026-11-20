@@ -430,6 +430,9 @@ fn run() -> Decision {
     let (Decision::Start, Some(broker)) = (decision, broker) else {
         return decision;
     };
+    #[cfg(windows)]
+    let home = crate::identity::home();
+    #[cfg(not(windows))]
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     // nothing answers and this app holds the start lock: no broker uses the
     // folder, so it can move before the broker opens it
