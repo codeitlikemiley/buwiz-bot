@@ -125,7 +125,12 @@ for binary in "$BUWIZ_BOT_BIN" "$BUWIZ_BROKER_BIN" "$NSH_BIN" "$NSH_HOST_BIN"; d
   fi
   while IFS= read -r library; do
     [ -n "$library" ] || continue
-    package="$(dpkg-query -S "$library" 2>/dev/null | sed -n '1s/: .*//p' | sed 's/:.*$//')"
+    library_path="$(readlink -f "$library")" || die "could not resolve runtime library $library ($binary)"
+    package=""
+    for candidate in "$library_path" "$library"; do
+      package="$(dpkg-query -S "$candidate" 2>/dev/null | sed -n '1s/: .*//p' | sed 's/:.*$//' || true)"
+      [ -n "$package" ] && break
+    done
     [ -n "$package" ] || die "could not find the Debian package for runtime library $library ($binary)"
     case "$package" in
       libgtk-4-1|libsqlite3-0) continue ;;
