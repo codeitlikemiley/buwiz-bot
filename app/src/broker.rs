@@ -268,13 +268,12 @@ pub fn bundled_broker(exe: &Path, is_file: impl Fn(&Path) -> bool) -> Option<Pat
 
 fn bundled_broker_with_suffix(exe: &Path, suffix: &str, is_file: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let exe_dir = exe.parent()?;
-    let resources = if exe_dir.file_name()? == "MacOS" && exe_dir.parent()?.file_name()? == "Contents" {
-        exe_dir.parent()?.join("Resources")
-    } else if exe_dir.file_name()? == "bin" {
-        exe_dir.parent()?.join("Resources")
-    } else {
+    let exe_dir_name = exe_dir.file_name()?;
+    let macos_bundle = exe_dir_name == "MacOS" && exe_dir.parent()?.file_name()? == "Contents";
+    if !macos_bundle && exe_dir_name != "bin" {
         return None;
-    };
+    }
+    let resources = exe_dir.parent()?.join("Resources");
     let broker = resources.join("broker").join(format!("{BROKER_NAME}{suffix}"));
     is_file(&broker).then_some(broker)
 }
