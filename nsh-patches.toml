@@ -144,6 +144,14 @@ pr = 0
 status = "local"
 note = "Windows AppView::set_error_handler so the Bot shows a mini app's error banner; in buwiz via hexuria/nsh#26; the topic branch is on codeitlikemiley/nsh (cut from buwiz) and is not yet upstream"
 
+[[topic]]
+branch = "buwiz-linux-installed-desktop-entry"
+base = "3fcb4e58b2aeb8750d78803e356408c4b36c0f55"
+kind = "fix"
+pr = 0
+status = "local"
+note = "Linux link registration reuses a matching installed desktop entry instead of letting an NSH-generated user entry shadow it; the topic branch is on codeitlikemiley/nsh (cut from buwiz) and is not yet upstream"
+
 # The shared gpui-agent adapter (nsh-testing strict mode + nsh-gpui-agent), a
 # stack on hexuria/nsh: Linux/Android <- Windows, and <- web. Reviewed and
 # verified, carried in `buwiz`; kept in the fork, not upstreamed. The macOS-only
